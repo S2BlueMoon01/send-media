@@ -1,0 +1,44 @@
+{
+  "name": "send-media",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@radix-ui/react-dialog": "^1.1.4",
+    "@radix-ui/react-progress": "^1.1.0",
+    "@radix-ui/react-separator": "^1.1.0",
+    "@radix-ui/react-slot": "^1.1.0",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "framer-motion": "^11.15.0",
+    "html5-qrcode": "^2.3.8",
+    "lucide-react": "^0.468.0",
+    "pako": "^2.1.0",
+    "qrcode.react": "^4.1.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-dropzone": "^14.3.5",
+    "simple-peer": "^9.11.1",
+    "sonner": "^1.7.0",
+    "tailwind-merge": "^2.6.0"
+  },
+  "devDependencies": {
+    "@types/pako": "^2.0.4",
+    "@types/react": "^18.3.28",
+    "@types/react-dom": "^18.3.1",
+    "@types/simple-peer": "^9.11.8",
+    "@vitejs/plugin-react": "^4.3.4",
+    "autoprefixer": "^10.4.20",
+    "postcss": "^8.4.49",
+    "tailwindcss": "^3.4.17",
+    "tailwindcss-animate": "^1.0.7",
+    "typescript": "~5.6.2",
+    "vite": "^6.0.0",
+    "vite-plugin-node-polyfills": "^0.25.0"
+  }
+}
