@@ -70,3 +70,4 @@ Uses Web Crypto API, supported in all modern browsers:
 - Firefox 34+
 - Safari 11+
 - Opera 24+
+
