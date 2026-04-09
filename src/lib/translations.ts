@@ -18,7 +18,7 @@ export const translations = {
     landing: {
       title: 'SendMedia',
       subtitle: 'Chia sẻ file trực tiếp giữa các thiết bị. Ngang hàng (P2P), không server, không đám mây — bảo mật 100%.',
-      encrypted: 'Mã hóa đầu cuối',
+      encrypted: 'Mã hóa AES-256 đầu cuối',
       noLimit: 'Không giới hạn dung lượng',
       p2p: 'P2P WebRTC',
       sendFiles: 'Gửi Files',
@@ -117,7 +117,7 @@ export const translations = {
     landing: {
       title: 'SendMedia',
       subtitle: 'Share files directly between devices. Peer-to-peer (P2P), no server, no cloud — 100% private.',
-      encrypted: 'End-to-end encrypted',
+      encrypted: 'AES-256 end-to-end encrypted',
       noLimit: 'No file size limit',
       p2p: 'P2P WebRTC',
       sendFiles: 'Send Files',

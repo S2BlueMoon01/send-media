@@ -33,6 +33,7 @@ import { encodeSignal, decodeSignal, uid, sleep } from '@/lib/utils';
 import { toast } from 'sonner';
 import { useSettings } from '@/hooks/useSettings';
 import { createRoom, getOffer, submitAnswer, pollAnswer, markCompleted } from '@/lib/supabase';
+import { deriveFileEncryptionKey, encryptChunk, decryptChunk } from '@/lib/encryption';
 
 // ─── Constants ───────────────────────────────────────────────
 const CHUNK_SIZE = 64 * 1024;          // 64KB per chunk
@@ -86,6 +87,7 @@ export function useWebRTC() {
   const visibilityToastIdRef = useRef<string | number | null>(null);
   const connectionTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const currentRoomIdRef = useRef<string | null>(null);
+  const encryptionKeyRef = useRef<CryptoKey | null>(null);
 
   // Connection
   const [connectionState, setConnectionState] = useState<ConnectionState>('idle');
@@ -183,12 +185,11 @@ export function useWebRTC() {
   }, [connectionState, t.transfer.keepTabOpen, t.transfer.backgroundWarning, t.common.back, t.common.error]);
 
   // ─── Incoming data handler ──────────────────────────────
-  const handleData = useCallback((data: any) => {
+  const handleData = useCallback(async (data: any) => {
     requestWakeLock(); // Request on activity
     let msg: any = null;
     let isJson = false;
 
-    // ... (rest of handleData logic remains same)
     // 1. Try to parse as JSON
     try {
       if (typeof data === 'string') {
@@ -232,15 +233,43 @@ export function useWebRTC() {
 
       if (msg.type === 'file-complete' && incomingRef.current) {
         const { id, name, chunks } = incomingRef.current;
-        const blob = new Blob(chunks);
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = name;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        setTimeout(() => URL.revokeObjectURL(url), 5000);
+        
+        // Decrypt all chunks before creating blob
+        if (encryptionKeyRef.current) {
+          try {
+            const decryptedChunks = await Promise.all(
+              chunks.map((chunk: Uint8Array) => decryptChunk(chunk, encryptionKeyRef.current!))
+            );
+            const blob = new Blob(decryptedChunks);
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = name;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            setTimeout(() => URL.revokeObjectURL(url), 5000);
+          } catch (err) {
+            console.error('[Decryption Error]', err);
+            setTransfers((p) =>
+              p.map((t) => (t.id === id ? { ...t, status: 'error', speed: 0 } : t)),
+            );
+            incomingRef.current = null;
+            releaseWakeLock();
+            return;
+          }
+        } else {
+          // Fallback: no encryption (shouldn't happen)
+          const blob = new Blob(chunks);
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = name;
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+          setTimeout(() => URL.revokeObjectURL(url), 5000);
+        }
 
         setTransfers((p) =>
           p.map((t) => (t.id === id ? { ...t, progress: 100, status: 'completed', speed: 0, endTime: Date.now() } : t)),
@@ -408,6 +437,10 @@ export function useWebRTC() {
         // Store offer in Supabase and get room ID
         const roomId = await createRoom(data);
         currentRoomIdRef.current = roomId;
+        
+        // Derive encryption key from room ID
+        encryptionKeyRef.current = await deriveFileEncryptionKey(roomId);
+        
         setLocalSignal(roomId); // Set room ID instead of full signal
         setSignalStatus('ready');
         setConnectionState('waiting-for-peer');
@@ -441,6 +474,9 @@ export function useWebRTC() {
           // It's a room ID, fetch offer from Supabase
           offerSignal = await getOffer(roomIdOrSignal);
           currentRoomIdRef.current = roomIdOrSignal;
+          
+          // Derive encryption key from room ID
+          encryptionKeyRef.current = await deriveFileEncryptionKey(roomIdOrSignal);
         } else {
           // It's a full signal (backward compatibility)
           offerSignal = decodeSignal(roomIdOrSignal.trim());
@@ -504,6 +540,7 @@ export function useWebRTC() {
     cancelledRef.current.clear();
     incomingRef.current = null;
     currentRoomIdRef.current = null;
+    encryptionKeyRef.current = null;
     releaseWakeLock();
   }, []);
 
@@ -557,6 +594,19 @@ export function useWebRTC() {
           const end = Math.min(start + CHUNK_SIZE, file.size);
           const chunk = new Uint8Array(await file.slice(start, end).arrayBuffer());
 
+          // Encrypt chunk before sending
+          let dataToSend = chunk;
+          if (encryptionKeyRef.current) {
+            try {
+              dataToSend = await encryptChunk(chunk, encryptionKeyRef.current);
+            } catch (err) {
+              console.error('[Encryption Error]', err);
+              setTransfers((p) => p.map((t) => (t.id === id ? { ...t, status: 'error', speed: 0 } : t)));
+              transferFailed = true;
+              break;
+            }
+          }
+
           // Back-pressure
           const channel = (peer as any)._channel as RTCDataChannel | undefined;
           if (channel) {
@@ -566,7 +616,7 @@ export function useWebRTC() {
           }
 
           try {
-            peer.send(chunk);
+            peer.send(dataToSend);
           } catch (e) {
             console.error('[Send Chunk Error]', e);
             setTransfers((p) => p.map((t) => (t.id === id ? { ...t, status: 'error', speed: 0 } : t)));
