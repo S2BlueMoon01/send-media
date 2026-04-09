@@ -23,6 +23,9 @@ export default function QRDisplay({ value }: QRDisplayProps) {
   const isTooLarge = value.length > 2000;
   const isRoomId = value.length <= 10; // Room IDs are 6-8 characters
 
+  // Generate unique gradient ID for this component instance
+  const gradientId = `qr-gradient-${Math.random().toString(36).substr(2, 9)}`;
+
   return (
     <div className="flex flex-col items-center gap-4 w-full">
       <div className="glass p-4 rounded-3xl bg-white border-none shadow-2xl relative group">
@@ -37,12 +40,24 @@ export default function QRDisplay({ value }: QRDisplayProps) {
           </div>
         ) : (
           <div className="relative p-1">
+            <svg width="0" height="0">
+              <defs>
+                <linearGradient id={gradientId} x1="0%" y1="0%" x2="100%" y2="100%">
+                  <stop offset="0%" stopColor="#6366f1" />
+                  <stop offset="50%" stopColor="#8b5cf6" />
+                  <stop offset="100%" stopColor="#a855f7" />
+                </linearGradient>
+              </defs>
+            </svg>
              <QRCodeSVG
               value={value}
-              size={typeof window !== 'undefined' && window.innerWidth < 640 ? 200 : 240}
+              size={typeof window !== 'undefined' && window.innerWidth < 640 ? 260 : 280}
               level="L"
               includeMargin={true}
+              marginSize={2}
               className="rounded-lg"
+              fgColor={`url(#${gradientId})`}
+              bgColor="#ffffff"
             />
             <div className="absolute inset-0 border-2 border-indigo-500/20 rounded-lg pointer-events-none" />
           </div>
