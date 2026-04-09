@@ -32,6 +32,7 @@ import Peer from 'simple-peer';
 import { encodeSignal, decodeSignal, uid, sleep } from '@/lib/utils';
 import { toast } from 'sonner';
 import { useSettings } from '@/hooks/useSettings';
+import { createRoom, getOffer, submitAnswer, pollAnswer, markCompleted } from '@/lib/supabase';
 
 // ─── Constants ───────────────────────────────────────────────
 const CHUNK_SIZE = 64 * 1024;          // 64KB per chunk
@@ -84,6 +85,7 @@ export function useWebRTC() {
   const peerRef = useRef<Peer.Instance | null>(null);
   const visibilityToastIdRef = useRef<string | number | null>(null);
   const connectionTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const currentRoomIdRef = useRef<string | null>(null);
 
   // Connection
   const [connectionState, setConnectionState] = useState<ConnectionState>('idle');
@@ -302,20 +304,19 @@ export function useWebRTC() {
         config: { iceServers: ICE_SERVERS },
       });
 
-      peer.on('signal', (data) => {
-        if (data.type === 'offer' || data.type === 'answer') {
-          // If trickle: false, this will only fire once with the full SDP
-          setLocalSignal(encodeSignal(data));
-          setSignalStatus('ready');
-          setConnectionState('waiting-for-peer');
-        }
-      });
+      // Signal handler is now managed by createOffer/acceptOffer
+      // to support Supabase signaling
 
-      peer.on('connect', () => {
+      peer.on('connect', async () => {
         setConnectionState('connected');
         setSignalStatus(null);
         setError(null);
         requestWakeLock();
+        
+        // Mark room as completed in Supabase
+        if (currentRoomIdRef.current) {
+          await markCompleted(currentRoomIdRef.current);
+        }
       });
 
       peer.on('data', handleData);
@@ -324,6 +325,7 @@ export function useWebRTC() {
         setConnectionState('disconnected');
         setSignalStatus(null);
         isSendingRef.current = false;
+        currentRoomIdRef.current = null;
         releaseWakeLock();
       });
 
@@ -344,6 +346,7 @@ export function useWebRTC() {
         setConnectionState('error');
         setSignalStatus(null);
         isSendingRef.current = false;
+        currentRoomIdRef.current = null;
         releaseWakeLock();
       });
 
@@ -355,19 +358,74 @@ export function useWebRTC() {
 
   // ─── Public API ─────────────────────────────────────────
 
+  /** Helper: Poll for answer from Supabase */
+  const pollForAnswer = useCallback(async (roomId: string, peer: Peer.Instance) => {
+    const maxAttempts = 60; // 60 attempts * 3 seconds = 3 minutes
+    let attempts = 0;
+    
+    const poll = async () => {
+      if (attempts >= maxAttempts) {
+        setError('connectionTimeout');
+        setConnectionState('error');
+        return;
+      }
+      
+      if (peer.destroyed) {
+        return;
+      }
+      
+      try {
+        const answer = await pollAnswer(roomId);
+        if (answer) {
+          peer.signal(answer);
+          await markCompleted(roomId);
+        } else {
+          attempts++;
+          setTimeout(poll, 3000); // Poll every 3 seconds
+        }
+      } catch (err) {
+        console.error('[Poll Answer Error]', err);
+        attempts++;
+        setTimeout(poll, 3000); // Retry on error
+      }
+    };
+    
+    poll();
+  }, []);
+
   /** Step 1 (Sender): Create an offer */
-  const createOffer = useCallback(() => {
+  const createOffer = useCallback(async () => {
     setError(null);
     setLocalSignal(null);
     setSignalStatus('gathering');
     setConnectionState('connecting');
-    createPeerInstance(true);
-  }, [createPeerInstance]);
+    
+    const peer = createPeerInstance(true);
+    
+    // Wait for signal event
+    peer.once('signal', async (data) => {
+      try {
+        // Store offer in Supabase and get room ID
+        const roomId = await createRoom(data);
+        currentRoomIdRef.current = roomId;
+        setLocalSignal(roomId); // Set room ID instead of full signal
+        setSignalStatus('ready');
+        setConnectionState('waiting-for-peer');
+        
+        // Start polling for answer
+        pollForAnswer(roomId, peer);
+      } catch (err: any) {
+        console.error('[Create Room Error]', err);
+        setError(err.message || 'Failed to create room');
+        setConnectionState('error');
+      }
+    });
+  }, [createPeerInstance, pollForAnswer]);
 
   /** Step 2 (Receiver): Accept an offer and generate an answer */
   const acceptOffer = useCallback(
-    (encodedOffer: string) => {
-      if (!encodedOffer.trim()) return;
+    async (roomIdOrSignal: string) => {
+      if (!roomIdOrSignal.trim()) return;
       if (connectionState === 'connected') return;
 
       try {
@@ -375,37 +433,58 @@ export function useWebRTC() {
         setLocalSignal(null);
         setSignalStatus('gathering');
         setConnectionState('connecting');
+        
+        let offerSignal: any;
+        
+        // Check if input is room ID (short) or full signal (long, for backward compat)
+        if (roomIdOrSignal.length <= 10) {
+          // It's a room ID, fetch offer from Supabase
+          offerSignal = await getOffer(roomIdOrSignal);
+          currentRoomIdRef.current = roomIdOrSignal;
+        } else {
+          // It's a full signal (backward compatibility)
+          offerSignal = decodeSignal(roomIdOrSignal.trim());
+        }
+        
         const peer = createPeerInstance(false);
-        const signal = decodeSignal(encodedOffer.trim());
-        peer.signal(signal as Peer.SignalData);
+        peer.signal(offerSignal as Peer.SignalData);
+        
+        // Wait for answer signal
+        peer.once('signal', async (answerData) => {
+          if (currentRoomIdRef.current) {
+            // Submit answer to Supabase
+            try {
+              await submitAnswer(currentRoomIdRef.current, answerData);
+              setSignalStatus('ready');
+            } catch (err: any) {
+              console.error('[Submit Answer Error]', err);
+              setError(err.message || 'Failed to submit answer');
+              setConnectionState('error');
+            }
+          } else {
+            // Fallback to old behavior (encode answer for manual copy/paste)
+            setLocalSignal(encodeSignal(answerData));
+            setSignalStatus('ready');
+          }
+        });
       } catch (e: any) {
         console.error('[Offer Error]', e);
         const isDecodeError = e.message?.includes('JSON') || e.message?.includes('base64');
-        setError(isDecodeError ? 'invalidOfferFormat' : 'invalidOffer');
+        const isSupabaseError = e.message?.includes('Room not found') || e.message?.includes('Invalid room ID');
+        
+        if (isSupabaseError) {
+          setError(e.message);
+        } else if (isDecodeError) {
+          setError('invalidOfferFormat');
+        } else {
+          setError('invalidOffer');
+        }
         setConnectionState('error');
         setSignalStatus(null);
       }
     },
     [createPeerInstance, connectionState],
   );
-
-  /** Step 3 (Sender): Accept the answer to complete connection */
-  const acceptAnswer = useCallback((encodedAnswer: string) => {
-    if (!encodedAnswer.trim()) return;
-    if (connectionState === 'connected') return;
-
-    try {
-      setError(null);
-      const signal = decodeSignal(encodedAnswer.trim());
-      if (!peerRef.current) throw new Error('Peer not initialized');
-      peerRef.current.signal(signal as Peer.SignalData);
-    } catch (e: any) {
-      console.error('[Answer Error]', e);
-      const isDecodeError = e.message?.includes('JSON') || e.message?.includes('base64');
-      setError(isDecodeError ? 'invalidAnswerFormat' : 'invalidAnswer');
-      setConnectionState('error');
-    }
-  }, [connectionState]);
 
   /** Disconnect and reset */
   const disconnect = useCallback(() => {
@@ -421,6 +500,7 @@ export function useWebRTC() {
     isSendingRef.current = false;
     cancelledRef.current.clear();
     incomingRef.current = null;
+    currentRoomIdRef.current = null;
     releaseWakeLock();
   }, []);
 
@@ -584,7 +664,6 @@ export function useWebRTC() {
     messages,
     createOffer,
     acceptOffer,
-    acceptAnswer,
     disconnect,
     resetConnection: disconnect, // Alias for clarity
     sendFiles,

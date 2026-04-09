@@ -48,9 +48,14 @@ export default {
           '0%, 100%': { opacity: '0.4' },
           '50%': { opacity: '1' },
         },
+        'scanning-line': {
+          '0%': { transform: 'translateY(0)' },
+          '100%': { transform: 'translateY(250px)' },
+        },
       },
       animation: {
         'pulse-glow': 'pulse-glow 2s ease-in-out infinite',
+        'scanning-line': 'scanning-line 2s ease-in-out infinite',
       },
     },
   },

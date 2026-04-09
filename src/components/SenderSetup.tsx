@@ -2,8 +2,6 @@ import { motion } from 'framer-motion';
 import { ArrowLeft, Loader2, QrCode, ShieldCheck } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Input } from '@/components/ui/input';
-import QRScanner from './QRScanner';
 import QRDisplay from './QRDisplay';
 import { useSettings } from '@/hooks/useSettings';
 import { ConnectionState } from '@/hooks/useWebRTC';
@@ -14,7 +12,6 @@ interface SenderSetupProps {
   signalStatus: 'gathering' | 'ready' | null;
   error: string | null;
   onCreateOffer: () => void;
-  onAcceptAnswer: (answer: string) => void;
   onReset: () => void;
   onClearError: () => void;
   onBack: () => void;
@@ -26,13 +23,13 @@ export default function SenderSetup({
   signalStatus,
   error,
   onCreateOffer,
-  onAcceptAnswer,
   onReset,
   onClearError,
   onBack,
 }: SenderSetupProps) {
   const { t } = useSettings();
   const isConnecting = connectionState === 'connecting';
+  const isWaitingForPeer = connectionState === 'waiting-for-peer';
   const showQR = !!localSignal && connectionState !== 'connected';
 
   return (
@@ -100,27 +97,15 @@ export default function SenderSetup({
               </motion.div>
             )}
 
-            {localSignal && connectionState !== 'connected' && (
-              <div className="flex flex-col gap-3">
-                <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest px-1">
-                   {t.setup.step3Answer}
+            {isWaitingForPeer && (
+              <div className="flex flex-col items-center gap-3 py-4">
+                <Loader2 className="w-8 h-8 animate-spin text-indigo-400" />
+                <p className="text-sm font-medium text-muted-foreground">
+                  {t.setup.waitingForReceiver || 'Waiting for receiver to scan...'}
                 </p>
-                <div className="space-y-3">
-                  <QRScanner onScan={onAcceptAnswer} />
-                  <div className="relative">
-                    <Input
-                      placeholder={t.setup.pasteAnswer}
-                      className="bg-background border-input focus:border-indigo-500"
-                      onFocus={onClearError}
-                      onChange={(e) => {
-                        if (e.target.value === '') onClearError();
-                        if (e.target.value.length > 50) {
-                          onAcceptAnswer(e.target.value);
-                        }
-                      }}
-                    />
-                  </div>
-                </div>
+                <p className="text-xs text-muted-foreground/70 text-center">
+                  {t.setup.autoConnecting || 'Connection will complete automatically'}
+                </p>
               </div>
             )}
 

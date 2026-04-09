@@ -77,13 +77,22 @@ export default function ReceiverSetup({
                     <QRScanner onScan={onAcceptOffer} />
                     <div className="space-y-3">
                       <Input
-                        placeholder={t.setup.pasteOffer}
+                        placeholder={t.setup.pasteRoomId}
                         className="bg-background border-input focus:border-purple-500"
                         onFocus={onClearError}
                         onChange={(e) => {
-                          if (e.target.value === '') onClearError();
-                          if (e.target.value.length > 50) {
-                            onAcceptOffer(e.target.value);
+                          const value = e.target.value.trim();
+                          if (value === '') {
+                            onClearError();
+                            return;
+                          }
+                          
+                          // Accept room IDs (6-8 characters) or full signals (backward compatibility)
+                          const isRoomId = /^[a-zA-Z0-9]{6,8}$/.test(value);
+                          const isFullSignal = value.length > 50;
+                          
+                          if (isRoomId || isFullSignal) {
+                            onAcceptOffer(value);
                           }
                         }}
                       />

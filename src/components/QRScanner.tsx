@@ -178,21 +178,23 @@ export default function QRScanner({ onScan }: QRScannerProps) {
       </Button>
 
       <div className={`w-full aspect-square max-w-[320px] mx-auto overflow-hidden rounded-[2.5rem] border-4 border-white/20 bg-black relative shadow-2xl transition-all duration-300 ${scanning ? 'opacity-100 scale-100 pointer-events-auto' : 'opacity-0 scale-95 pointer-events-none h-0 overflow-hidden'}`}>
-        <div id="qr-reader" className="w-full h-full [&_video]:object-contain" />
+        <div id="qr-reader" className="relative w-full h-full [&_video]:w-full [&_video]:h-full [&_video]:object-contain" />
         
-        <div className="absolute inset-0 pointer-events-none flex flex-col items-center justify-center">
+        <div className="absolute inset-0 pointer-events-none flex items-center justify-center">
           <div className="absolute inset-0 bg-black/40" />
           
-          <div className="relative w-[250px] h-[250px] bg-transparent backdrop-blur-[1px]">
-             <div className="absolute top-0 left-0 w-8 h-8 border-t-4 border-l-4 border-indigo-500 rounded-tl-xl shadow-[0_0_15px_rgba(99,102,241,0.5)]" />
-             <div className="absolute top-0 right-0 w-8 h-8 border-t-4 border-r-4 border-indigo-500 rounded-tr-xl shadow-[0_0_15px_rgba(99,102,241,0.5)]" />
-             <div className="absolute bottom-0 left-0 w-8 h-8 border-b-4 border-l-4 border-indigo-500 rounded-bl-xl shadow-[0_0_15px_rgba(99,102,241,0.5)]" />
-             <div className="absolute bottom-0 right-0 w-8 h-8 border-b-4 border-r-4 border-indigo-500 rounded-br-xl shadow-[0_0_15px_rgba(99,102,241,0.5)]" />
-             
-             <div className="absolute left-0 right-0 h-1 bg-gradient-to-r from-transparent via-indigo-400 to-transparent top-0 animate-scanning-line shadow-[0_0_10px_rgba(99,102,241,0.8)]" />
+          <div className="relative w-[250px] h-[250px] flex items-center justify-center">
+            <div className="w-full h-full backdrop-blur-[1px]">
+              <div className="absolute top-0 left-0 w-8 h-8 border-t-4 border-l-4 border-indigo-500 rounded-tl-xl shadow-[0_0_15px_rgba(99,102,241,0.5)]" />
+              <div className="absolute top-0 right-0 w-8 h-8 border-t-4 border-r-4 border-indigo-500 rounded-tr-xl shadow-[0_0_15px_rgba(99,102,241,0.5)]" />
+              <div className="absolute bottom-0 left-0 w-8 h-8 border-b-4 border-l-4 border-indigo-500 rounded-bl-xl shadow-[0_0_15px_rgba(99,102,241,0.5)]" />
+              <div className="absolute bottom-0 right-0 w-8 h-8 border-b-4 border-r-4 border-indigo-500 rounded-br-xl shadow-[0_0_15px_rgba(99,102,241,0.5)]" />
+              
+              <div className="absolute left-0 right-0 h-1 bg-gradient-to-r from-transparent via-indigo-400 to-transparent top-0 animate-scanning-line shadow-[0_0_10px_rgba(99,102,241,0.8)]" />
+            </div>
           </div>
 
-          <p className="mt-6 text-white text-[10px] font-bold uppercase tracking-[0.2em] bg-black/60 px-4 py-1.5 rounded-full z-10 flex items-center gap-2">
+          <p className="absolute bottom-0 left-0 right-0 text-center text-white text-[10px] font-bold uppercase tracking-[0.2em] bg-black/60 px-4 py-1.5 rounded-full z-10 flex items-center justify-center gap-2 mx-auto w-fit">
             <Sparkles className="w-3 h-3 text-yellow-400" />
             Scanning for Peer Signal
           </p>

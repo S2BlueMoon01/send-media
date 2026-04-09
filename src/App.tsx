@@ -34,7 +34,6 @@ export default function App() {
     messages,
     createOffer,
     acceptOffer,
-    acceptAnswer,
     disconnect,
     resetConnection,
     clearError,
@@ -107,7 +106,6 @@ export default function App() {
               signalStatus={signalStatus}
               error={error}
               onCreateOffer={createOffer}
-              onAcceptAnswer={acceptAnswer}
               onReset={resetConnection}
               onClearError={clearError}
               onBack={handleBack}
