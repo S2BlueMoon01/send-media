@@ -21,6 +21,7 @@ export default function QRDisplay({ value }: QRDisplayProps) {
   };
 
   const isTooLarge = value.length > 2000;
+  const isRoomId = value.length <= 10; // Room IDs are 6-8 characters
 
   return (
     <div className="flex flex-col items-center gap-6 w-full">
@@ -47,6 +48,25 @@ export default function QRDisplay({ value }: QRDisplayProps) {
           </div>
         )}
       </div>
+
+      {/* Display Room ID as text for manual entry */}
+      {isRoomId && (
+        <div className="w-full flex flex-col items-center gap-3">
+          <div className="text-center">
+            <p className="text-xs text-zinc-400 uppercase tracking-wider font-bold mb-2">
+              Room Code
+            </p>
+            <div className="glass px-6 py-4 rounded-2xl bg-white/5 border border-white/10">
+              <p className="text-3xl font-mono font-bold tracking-[0.3em] text-indigo-400 select-all">
+                {value}
+              </p>
+            </div>
+          </div>
+          <p className="text-xs text-zinc-500 text-center max-w-xs">
+            Scan QR code or enter this code on another device
+          </p>
+        </div>
+      )}
 
       <Button
         variant="secondary"
