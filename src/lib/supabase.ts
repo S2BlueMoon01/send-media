@@ -27,6 +27,112 @@ import { nanoid } from 'nanoid';
 export type SignalData = any;
 
 /**
+ * Encryption/Decryption utilities using Web Crypto API
+ * Encrypts signal data before storing in database for security
+ */
+
+/**
+ * Generate encryption key from room ID
+ * Uses PBKDF2 to derive a key from the room ID
+ */
+async function deriveKey(roomId: string): Promise<CryptoKey> {
+  const encoder = new TextEncoder();
+  const keyMaterial = await crypto.subtle.importKey(
+    'raw',
+    encoder.encode(roomId),
+    'PBKDF2',
+    false,
+    ['deriveBits', 'deriveKey']
+  );
+  
+  // Use a fixed salt (in production, you might want to store this per-room)
+  const salt = encoder.encode('webrtc-signal-encryption-salt-v1');
+  
+  return crypto.subtle.deriveKey(
+    {
+      name: 'PBKDF2',
+      salt: salt,
+      iterations: 100000,
+      hash: 'SHA-256',
+    },
+    keyMaterial,
+    { name: 'AES-GCM', length: 256 },
+    false,
+    ['encrypt', 'decrypt']
+  );
+}
+
+/**
+ * Encrypt signal data
+ * @param data - Signal data to encrypt
+ * @param roomId - Room ID used as encryption key
+ * @returns Encrypted data as base64 string with IV prepended
+ */
+async function encryptSignal(data: SignalData, roomId: string): Promise<string> {
+  try {
+    const key = await deriveKey(roomId);
+    const encoder = new TextEncoder();
+    const dataString = JSON.stringify(data);
+    const dataBuffer = encoder.encode(dataString);
+    
+    // Generate random IV (Initialization Vector)
+    const iv = crypto.getRandomValues(new Uint8Array(12));
+    
+    // Encrypt the data
+    const encryptedBuffer = await crypto.subtle.encrypt(
+      { name: 'AES-GCM', iv: iv },
+      key,
+      dataBuffer
+    );
+    
+    // Combine IV and encrypted data
+    const combined = new Uint8Array(iv.length + encryptedBuffer.byteLength);
+    combined.set(iv, 0);
+    combined.set(new Uint8Array(encryptedBuffer), iv.length);
+    
+    // Convert to base64
+    return btoa(String.fromCharCode(...combined));
+  } catch (error) {
+    console.error('[Encryption] Failed to encrypt signal:', error);
+    throw new Error('Failed to encrypt signal data');
+  }
+}
+
+/**
+ * Decrypt signal data
+ * @param encryptedData - Encrypted data as base64 string
+ * @param roomId - Room ID used as decryption key
+ * @returns Decrypted signal data
+ */
+async function decryptSignal(encryptedData: string, roomId: string): Promise<SignalData> {
+  try {
+    const key = await deriveKey(roomId);
+    
+    // Decode base64
+    const combined = Uint8Array.from(atob(encryptedData), c => c.charCodeAt(0));
+    
+    // Extract IV and encrypted data
+    const iv = combined.slice(0, 12);
+    const encryptedBuffer = combined.slice(12);
+    
+    // Decrypt the data
+    const decryptedBuffer = await crypto.subtle.decrypt(
+      { name: 'AES-GCM', iv: iv },
+      key,
+      encryptedBuffer
+    );
+    
+    // Convert back to string and parse JSON
+    const decoder = new TextDecoder();
+    const dataString = decoder.decode(decryptedBuffer);
+    return JSON.parse(dataString);
+  } catch (error) {
+    console.error('[Decryption] Failed to decrypt signal:', error);
+    throw new Error('Failed to decrypt signal data');
+  }
+}
+
+/**
  * Rate limiting configuration
  */
 const RATE_LIMIT_KEY = 'webrtc_room_creation_timestamps';
@@ -123,11 +229,14 @@ export async function createRoom(offer: SignalData): Promise<string> {
   const roomId = nanoid(8);
   
   try {
+    // Encrypt the offer before storing
+    const encryptedOffer = await encryptSignal(offer, roomId);
+    
     const { error } = await supabase
       .from('webrtc_signals')
       .insert({
         id: roomId,
-        offer: offer,
+        offer: encryptedOffer,
         answer: null,
         expires_at: new Date(Date.now() + 5 * 60 * 1000).toISOString(), // 5 minutes from now
         completed: false,
@@ -151,7 +260,7 @@ export async function createRoom(offer: SignalData): Promise<string> {
  * Retrieve offer from a room by room ID
  * 
  * @param roomId - Room ID (6-8 characters)
- * @returns WebRTC offer signal data
+ * @returns WebRTC offer signal data (decrypted)
  * @throws Error if room not found or invalid room ID format
  */
 export async function getOffer(roomId: string): Promise<SignalData> {
@@ -175,7 +284,9 @@ export async function getOffer(roomId: string): Promise<SignalData> {
       throw new Error('Room not found or offer is missing');
     }
     
-    return data.offer;
+    // Decrypt the offer before returning
+    const decryptedOffer = await decryptSignal(data.offer, sanitizedRoomId);
+    return decryptedOffer;
   } catch (error) {
     if (error instanceof Error) {
       throw error;
@@ -200,9 +311,12 @@ export async function submitAnswer(roomId: string, answer: SignalData): Promise<
   validateSignalData(answer);
   
   try {
+    // Encrypt the answer before storing
+    const encryptedAnswer = await encryptSignal(answer, sanitizedRoomId);
+    
     const { error } = await supabase
       .from('webrtc_signals')
-      .update({ answer })
+      .update({ answer: encryptedAnswer })
       .eq('id', sanitizedRoomId)
       .is('answer', null); // RLS policy ensures answer can only be set once
     
@@ -231,7 +345,7 @@ export async function submitAnswer(roomId: string, answer: SignalData): Promise<
  * The caller should implement polling logic with exponential backoff.
  * 
  * @param roomId - Room ID (6-8 characters)
- * @returns WebRTC answer signal data if available, null otherwise
+ * @returns WebRTC answer signal data (decrypted) if available, null otherwise
  * @throws Error if room not found or invalid room ID format
  */
 export async function pollAnswer(roomId: string): Promise<SignalData | null> {
@@ -251,8 +365,14 @@ export async function pollAnswer(roomId: string): Promise<SignalData | null> {
       throw new Error(`Room not found or expired: ${error.message}`);
     }
     
-    // Return answer if it exists, null otherwise
-    return data?.answer || null;
+    // Return null if no answer yet
+    if (!data?.answer) {
+      return null;
+    }
+    
+    // Decrypt the answer before returning
+    const decryptedAnswer = await decryptSignal(data.answer, sanitizedRoomId);
+    return decryptedAnswer;
   } catch (error) {
     if (error instanceof Error) {
       throw error;
@@ -262,13 +382,12 @@ export async function pollAnswer(roomId: string): Promise<SignalData | null> {
 }
 
 /**
- * Mark a room as completed
+ * Mark a room as completed and delete it immediately
  * 
- * This is used for cleanup optimization. Completed rooms can be deleted
- * immediately by the cleanup function instead of waiting for expiration.
+ * This is called after successful WebRTC connection.
+ * Deletes the room data immediately for security.
  * 
  * @param roomId - Room ID (6-8 characters)
- * @throws Error if room not found or invalid room ID format
  */
 export async function markCompleted(roomId: string): Promise<void> {
   // Sanitize and validate room ID
@@ -276,18 +395,21 @@ export async function markCompleted(roomId: string): Promise<void> {
   validateRoomId(sanitizedRoomId);
   
   try {
+    // Delete the room immediately after connection success
     const { error } = await supabase
       .from('webrtc_signals')
-      .update({ completed: true })
+      .delete()
       .eq('id', sanitizedRoomId);
     
     if (error) {
-      console.error('[Supabase] Failed to mark room as completed:', error);
-      // Don't throw error - this is optimization, not critical
+      console.error('[Supabase] Failed to delete room:', error);
+      // Don't throw error - this is cleanup, not critical
       // Just log and continue
+    } else {
+      console.log(`[Supabase] Room ${sanitizedRoomId} deleted successfully after connection`);
     }
   } catch (error) {
-    // Don't throw error - this is optimization, not critical
-    console.warn('Failed to mark room as completed:', error);
+    // Don't throw error - this is cleanup, not critical
+    console.warn('Failed to delete room:', error);
   }
 }
