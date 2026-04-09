@@ -122,7 +122,7 @@ export default function ReceiverSetup({
                         </Button>
                       </div>
                       <p className="text-xs text-muted-foreground text-center">
-                        Enter 6-8 character room code
+                        {t.setup.roomCodeHelper}
                       </p>
                     </div>
                   </>
