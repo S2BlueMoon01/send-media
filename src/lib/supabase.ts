@@ -273,15 +273,15 @@ export async function getOffer(roomId: string): Promise<SignalData> {
       .from('webrtc_signals')
       .select('offer')
       .eq('id', sanitizedRoomId)
-      .single();
+      .maybeSingle(); // Use maybeSingle() instead of single() to handle 0 rows gracefully
     
     if (error) {
       console.error('[Supabase] Failed to get offer:', error);
-      throw new Error(`Room not found or expired: ${error.message}`);
+      throw new Error(`Database error: ${error.message}`);
     }
     
     if (!data || !data.offer) {
-      throw new Error('Room not found or offer is missing');
+      throw new Error('Room not found or expired. Please check the room code and try again.');
     }
     
     // Decrypt the offer before returning
@@ -358,15 +358,15 @@ export async function pollAnswer(roomId: string): Promise<SignalData | null> {
       .from('webrtc_signals')
       .select('answer')
       .eq('id', sanitizedRoomId)
-      .single();
+      .maybeSingle(); // Use maybeSingle() instead of single() to handle 0 rows gracefully
     
     if (error) {
       console.error('[Supabase] Failed to poll answer:', error);
-      throw new Error(`Room not found or expired: ${error.message}`);
+      throw new Error(`Database error: ${error.message}`);
     }
     
-    // Return null if no answer yet
-    if (!data?.answer) {
+    // Return null if room not found or no answer yet
+    if (!data || !data.answer) {
       return null;
     }
     

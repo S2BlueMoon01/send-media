@@ -1,5 +1,5 @@
 import { motion } from 'framer-motion';
-import { ArrowLeft, Loader2, QrCode, ShieldCheck } from 'lucide-react';
+import { ArrowLeft, Loader2, QrCode, ShieldCheck, ArrowRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -7,6 +7,7 @@ import { ConnectionState } from '@/hooks/useWebRTC';
 import QRScanner from './QRScanner';
 import QRDisplay from './QRDisplay';
 import { useSettings } from '@/hooks/useSettings';
+import { useState } from 'react';
 
 interface ReceiverSetupProps {
   connectionState: ConnectionState;
@@ -30,8 +31,28 @@ export default function ReceiverSetup({
   onBack,
 }: ReceiverSetupProps) {
   const { t } = useSettings();
+  const [roomCode, setRoomCode] = useState('');
   const isConnecting = connectionState === 'connecting';
   const showQR = !!localSignal && connectionState !== 'connected';
+
+  const handleSubmitCode = () => {
+    const value = roomCode.trim();
+    if (!value) return;
+    
+    // Accept room IDs (6-8 characters) or full signals (backward compatibility)
+    const isRoomId = /^[a-zA-Z0-9]{6,8}$/.test(value);
+    const isFullSignal = value.length > 50;
+    
+    if (isRoomId || isFullSignal) {
+      onAcceptOffer(value);
+    }
+  };
+
+  const handleKeyPress = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter') {
+      handleSubmitCode();
+    }
+  };
 
   return (
     <div className="min-h-dvh flex flex-col items-center px-4 py-8 relative overflow-hidden">
@@ -76,26 +97,33 @@ export default function ReceiverSetup({
                   <>
                     <QRScanner onScan={onAcceptOffer} />
                     <div className="space-y-3">
-                      <Input
-                        placeholder={t.setup.pasteRoomId}
-                        className="bg-background border-input focus:border-purple-500"
-                        onFocus={onClearError}
-                        onChange={(e) => {
-                          const value = e.target.value.trim();
-                          if (value === '') {
+                      <div className="flex gap-2">
+                        <Input
+                          placeholder={t.setup.pasteRoomId}
+                          className="bg-background border-input focus:border-purple-500"
+                          value={roomCode}
+                          onChange={(e) => {
+                            setRoomCode(e.target.value);
                             onClearError();
-                            return;
-                          }
-                          
-                          // Accept room IDs (6-8 characters) or full signals (backward compatibility)
-                          const isRoomId = /^[a-zA-Z0-9]{6,8}$/.test(value);
-                          const isFullSignal = value.length > 50;
-                          
-                          if (isRoomId || isFullSignal) {
-                            onAcceptOffer(value);
-                          }
-                        }}
-                      />
+                          }}
+                          onKeyPress={handleKeyPress}
+                          maxLength={8}
+                        />
+                        <Button
+                          onClick={handleSubmitCode}
+                          disabled={!roomCode.trim() || isConnecting}
+                          className="px-6 bg-purple-600 hover:bg-purple-700 text-white"
+                        >
+                          {isConnecting ? (
+                            <Loader2 className="w-4 h-4 animate-spin" />
+                          ) : (
+                            <ArrowRight className="w-4 h-4" />
+                          )}
+                        </Button>
+                      </div>
+                      <p className="text-xs text-muted-foreground text-center">
+                        Enter 6-8 character room code
+                      </p>
                     </div>
                   </>
                 )}
