@@ -59,6 +59,7 @@ export const translations = {
       gatheringSignal: 'Đang thu thập tín hiệu...',
       waitingForReceiver: 'Đang chờ người nhận quét...',
       autoConnecting: 'Kết nối sẽ hoàn tất tự động',
+      roomNotFound: 'Không tìm thấy phòng hoặc đã hết hạn. Vui lòng kiểm tra mã phòng và thử lại.',
     },
     room: {
       connected: 'Đã kết nối',
@@ -157,6 +158,7 @@ export const translations = {
       gatheringSignal: 'Gathering signal...',
       waitingForReceiver: 'Waiting for receiver to scan...',
       autoConnecting: 'Connection will complete automatically',
+      roomNotFound: 'Room not found or expired. Please check the room code and try again.',
     },
     room: {
       connected: 'Connected',

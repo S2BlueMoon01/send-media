@@ -470,10 +470,13 @@ export function useWebRTC() {
       } catch (e: any) {
         console.error('[Offer Error]', e);
         const isDecodeError = e.message?.includes('JSON') || e.message?.includes('base64');
-        const isSupabaseError = e.message?.includes('Room not found') || e.message?.includes('Invalid room ID');
+        const isRoomNotFound = e.message?.includes('roomNotFound');
+        const isInvalidRoomId = e.message?.includes('Invalid room ID');
         
-        if (isSupabaseError) {
-          setError(e.message);
+        if (isRoomNotFound) {
+          setError('roomNotFound');
+        } else if (isInvalidRoomId) {
+          setError('invalidOffer');
         } else if (isDecodeError) {
           setError('invalidOfferFormat');
         } else {

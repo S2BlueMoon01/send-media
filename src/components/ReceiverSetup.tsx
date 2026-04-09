@@ -39,8 +39,8 @@ export default function ReceiverSetup({
     const value = roomCode.trim();
     if (!value) return;
     
-    // Accept room IDs (6-8 characters) or full signals (backward compatibility)
-    const isRoomId = /^[a-zA-Z0-9]{6,8}$/.test(value);
+    // Accept room IDs (6-8 digits only) or full signals (backward compatibility)
+    const isRoomId = /^[0-9]{6,8}$/.test(value);
     const isFullSignal = value.length > 50;
     
     if (isRoomId || isFullSignal) {
@@ -48,8 +48,16 @@ export default function ReceiverSetup({
     }
   };
 
-  const handleKeyPress = (e: React.KeyboardEvent) => {
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    // Only allow digits
+    const value = e.target.value.replace(/[^0-9]/g, '');
+    setRoomCode(value);
+    onClearError();
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter') {
+      e.preventDefault();
       handleSubmitCode();
     }
   };
@@ -83,7 +91,7 @@ export default function ReceiverSetup({
             </CardDescription>
           </CardHeader>
           <CardContent className="flex flex-col gap-6">
-            {!localSignal && (
+            {!localSignal && !isConnecting && (
               <div className="space-y-4">
                 {signalStatus === 'gathering' ? (
                   <div className="flex flex-col items-center gap-4 py-8 animate-pulse text-purple-400">
@@ -102,23 +110,18 @@ export default function ReceiverSetup({
                           placeholder={t.setup.pasteRoomId}
                           className="bg-background border-input focus:border-purple-500"
                           value={roomCode}
-                          onChange={(e) => {
-                            setRoomCode(e.target.value);
-                            onClearError();
-                          }}
-                          onKeyPress={handleKeyPress}
+                          onChange={handleInputChange}
+                          onKeyDown={handleKeyDown}
                           maxLength={8}
+                          inputMode="numeric"
+                          pattern="[0-9]*"
                         />
                         <Button
                           onClick={handleSubmitCode}
-                          disabled={!roomCode.trim() || isConnecting}
+                          disabled={!roomCode.trim()}
                           className="px-6 bg-purple-600 hover:bg-purple-700 text-white"
                         >
-                          {isConnecting ? (
-                            <Loader2 className="w-4 h-4 animate-spin" />
-                          ) : (
-                            <ArrowRight className="w-4 h-4" />
-                          )}
+                          <ArrowRight className="w-4 h-4" />
                         </Button>
                       </div>
                       <p className="text-xs text-muted-foreground text-center">
@@ -128,6 +131,24 @@ export default function ReceiverSetup({
                   </>
                 )}
               </div>
+            )}
+
+            {isConnecting && !localSignal && (
+              <motion.div 
+                initial={{ opacity: 0, scale: 0.9 }} 
+                animate={{ opacity: 1, scale: 1 }}
+                className="flex flex-col items-center gap-4 py-8"
+              >
+                <Loader2 className="w-12 h-12 animate-spin text-purple-400" />
+                <div className="text-center space-y-2">
+                  <p className="text-sm font-medium text-purple-400">
+                    {t.setup.waitingConn}
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    Đang thiết lập kết nối P2P...
+                  </p>
+                </div>
+              </motion.div>
             )}
 
             {showQR && (
@@ -145,13 +166,8 @@ export default function ReceiverSetup({
             )}
 
             {error && (
-              <div className="space-y-4">
-                <div className="p-3 rounded-lg bg-destructive/10 border border-destructive/20 text-destructive text-sm text-center">
-                  {t.common.error}: {t.setup[error as keyof typeof t.setup] || error}
-                </div>
-                <Button variant="outline" onClick={onReset} className="w-full border-zinc-200 dark:border-zinc-800">
-                  {t.common.connect} (Retry)
-                </Button>
+              <div className="p-3 rounded-lg bg-destructive/10 border border-destructive/20 text-destructive text-sm text-center">
+                {t.common.error}: {t.setup[error as keyof typeof t.setup] || error}
               </div>
             )}
           </CardContent>

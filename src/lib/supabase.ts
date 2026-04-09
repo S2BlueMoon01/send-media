@@ -7,7 +7,7 @@
  * instead of full signal data.
  */
 
-import { createClient } from '@supabase/supabase-js';
+import { createClient, SupabaseClient } from '@supabase/supabase-js';
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
@@ -16,9 +16,22 @@ if (!supabaseUrl || !supabaseAnonKey) {
   throw new Error('Missing Supabase environment variables. Please check .env file.');
 }
 
-export const supabase = createClient(supabaseUrl, supabaseAnonKey);
+// Singleton pattern to prevent multiple instances
+let supabaseInstance: SupabaseClient | null = null;
 
-import { nanoid } from 'nanoid';
+function getSupabaseClient(): SupabaseClient {
+  if (!supabaseInstance) {
+    supabaseInstance = createClient(supabaseUrl, supabaseAnonKey, {
+      auth: {
+        persistSession: false, // Disable auth session for signaling-only use
+        autoRefreshToken: false,
+      },
+    });
+  }
+  return supabaseInstance;
+}
+
+export const supabase = getSupabaseClient();
 
 /**
  * Type definition for WebRTC signal data
@@ -141,9 +154,9 @@ const ONE_HOUR_MS = 60 * 60 * 1000;
 
 /**
  * Room ID validation regex
- * Accepts 6-8 alphanumeric characters
+ * Accepts 6-8 numeric characters only
  */
-const ROOM_ID_REGEX = /^[a-zA-Z0-9]{6,8}$/;
+const ROOM_ID_REGEX = /^[0-9]{6,8}$/;
 
 /**
  * Check rate limiting for room creation
@@ -177,11 +190,11 @@ function checkRateLimit(): void {
 
 /**
  * Validate room ID format
- * Must be 6-8 alphanumeric characters
+ * Must be 6-8 numeric characters only
  */
 function validateRoomId(roomId: string): void {
   if (!ROOM_ID_REGEX.test(roomId)) {
-    throw new Error('Invalid room ID format. Must be 6-8 alphanumeric characters.');
+    throw new Error('Invalid room ID format. Must be 6-8 numeric characters.');
   }
 }
 
@@ -204,11 +217,24 @@ function validateSignalData(signal: SignalData): void {
 
 /**
  * Sanitize input to prevent injection attacks
- * Removes potentially dangerous characters
+ * Removes any characters that aren't numeric
  */
 function sanitizeInput(input: string): string {
-  // Remove any characters that aren't alphanumeric
-  return input.replace(/[^a-zA-Z0-9]/g, '');
+  // Remove any characters that aren't numeric
+  return input.replace(/[^0-9]/g, '');
+}
+
+/**
+ * Generate a random numeric room ID
+ * @param length - Length of the room ID (default 8)
+ * @returns Random numeric string
+ */
+function generateNumericRoomId(length: number = 8): string {
+  let result = '';
+  for (let i = 0; i < length; i++) {
+    result += Math.floor(Math.random() * 10).toString();
+  }
+  return result;
 }
 
 /**
@@ -225,8 +251,8 @@ export async function createRoom(offer: SignalData): Promise<string> {
   // Validate signal data
   validateSignalData(offer);
   
-  // Generate room ID (6-8 characters)
-  const roomId = nanoid(8);
+  // Generate room ID (8 numeric characters only)
+  const roomId = generateNumericRoomId(8);
   
   try {
     // Encrypt the offer before storing
@@ -281,7 +307,7 @@ export async function getOffer(roomId: string): Promise<SignalData> {
     }
     
     if (!data || !data.offer) {
-      throw new Error('Room not found or expired. Please check the room code and try again.');
+      throw new Error('roomNotFound');
     }
     
     // Decrypt the offer before returning

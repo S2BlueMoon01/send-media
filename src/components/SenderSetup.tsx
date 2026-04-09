@@ -110,13 +110,8 @@ export default function SenderSetup({
             )}
 
             {error && (
-              <div className="space-y-4">
-                <div className="p-3 rounded-lg bg-destructive/10 border border-destructive/20 text-destructive text-sm text-center">
-                  {t.common.error}: {t.setup[error as keyof typeof t.setup] || error}
-                </div>
-                <Button variant="outline" onClick={onReset} className="w-full border-zinc-200 dark:border-zinc-800">
-                  {t.common.connect} (Retry)
-                </Button>
+              <div className="p-3 rounded-lg bg-destructive/10 border border-destructive/20 text-destructive text-sm text-center">
+                {t.common.error}: {t.setup[error as keyof typeof t.setup] || error}
               </div>
             )}
           </CardContent>

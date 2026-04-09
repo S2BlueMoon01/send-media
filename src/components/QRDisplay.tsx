@@ -24,10 +24,10 @@ export default function QRDisplay({ value }: QRDisplayProps) {
   const isRoomId = value.length <= 10; // Room IDs are 6-8 characters
 
   return (
-    <div className="flex flex-col items-center gap-6 w-full">
-      <div className="glass p-5 rounded-3xl bg-white border-none shadow-2xl relative group">
+    <div className="flex flex-col items-center gap-4 w-full">
+      <div className="glass p-4 rounded-3xl bg-white border-none shadow-2xl relative group">
         {isTooLarge ? (
-          <div className="w-48 h-48 sm:w-64 sm:h-64 flex flex-col items-center justify-center gap-4 text-center p-4">
+          <div className="w-40 h-40 sm:w-48 sm:h-48 flex flex-col items-center justify-center gap-4 text-center p-4">
             <div className="w-12 h-12 rounded-full bg-yellow-100 flex items-center justify-center">
               <Info className="w-6 h-6 text-yellow-600" />
             </div>
@@ -39,7 +39,7 @@ export default function QRDisplay({ value }: QRDisplayProps) {
           <div className="relative p-1">
              <QRCodeSVG
               value={value}
-              size={typeof window !== 'undefined' && window.innerWidth < 640 ? 240 : 320}
+              size={typeof window !== 'undefined' && window.innerWidth < 640 ? 200 : 240}
               level="L"
               includeMargin={true}
               className="rounded-lg"
@@ -51,13 +51,13 @@ export default function QRDisplay({ value }: QRDisplayProps) {
 
       {/* Display Room ID as text for manual entry */}
       {isRoomId && (
-        <div className="w-full flex flex-col items-center gap-3">
+        <div className="w-full flex flex-col items-center gap-2">
           <div className="text-center">
-            <p className="text-xs text-zinc-400 uppercase tracking-wider font-bold mb-2">
+            <p className="text-xs text-zinc-400 uppercase tracking-wider font-bold mb-1">
               Room Code
             </p>
-            <div className="glass px-6 py-4 rounded-2xl bg-white/5 border border-white/10">
-              <p className="text-3xl font-mono font-bold tracking-[0.3em] text-indigo-400 select-all">
+            <div className="glass px-5 py-3 rounded-2xl bg-white/5 border border-white/10">
+              <p className="text-2xl font-mono font-bold tracking-[0.3em] text-indigo-400 select-all">
                 {value}
               </p>
             </div>
@@ -71,7 +71,7 @@ export default function QRDisplay({ value }: QRDisplayProps) {
       <Button
         variant="secondary"
         onClick={handleCopy}
-        className="w-full h-12 rounded-xl border border-white/5 bg-white/5 hover:bg-white/10 transition-all font-bold uppercase tracking-wider text-xs gap-3 group"
+        className="w-full h-11 rounded-xl border border-white/5 bg-white/5 hover:bg-white/10 transition-all font-bold uppercase tracking-wider text-xs gap-3 group"
       >
         {copied ? <Check className="w-4 h-4 text-green-400" /> : <Copy className="w-4 h-4 group-hover:text-indigo-400 transition-colors" />}
         {copied ? t.common.copied : t.common.copy}
