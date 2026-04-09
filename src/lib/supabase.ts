@@ -149,7 +149,7 @@ async function decryptSignal(encryptedData: string, roomId: string): Promise<Sig
  * Rate limiting configuration
  */
 const RATE_LIMIT_KEY = 'webrtc_room_creation_timestamps';
-const MAX_ROOMS_PER_HOUR = 10;
+const MAX_ROOMS_PER_HOUR = parseInt(import.meta.env.VITE_MAX_ROOMS_PER_HOUR || '10', 10);
 const ONE_HOUR_MS = 60 * 60 * 1000;
 
 /**
