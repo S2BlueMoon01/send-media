@@ -240,7 +240,7 @@ export function useWebRTC() {
             const decryptedChunks = await Promise.all(
               chunks.map((chunk: Uint8Array) => decryptChunk(chunk, encryptionKeyRef.current!))
             );
-            const blob = new Blob(decryptedChunks);
+            const blob = new Blob(decryptedChunks as BlobPart[]);
             const url = URL.createObjectURL(blob);
             const a = document.createElement('a');
             a.href = url;
@@ -327,6 +327,8 @@ export function useWebRTC() {
         peerRef.current.destroy();
       }
 
+      console.log(`[WebRTC] Creating peer instance (initiator: ${initiator})`);
+
       const peer = new Peer({
         initiator,
         trickle: false, // Bundle all ICE candidates into one signal
@@ -337,6 +339,7 @@ export function useWebRTC() {
       // to support Supabase signaling
 
       peer.on('connect', async () => {
+        console.log('[WebRTC] ✅ Peer connected successfully!');
         setConnectionState('connected');
         setSignalStatus(null);
         setError(null);
@@ -351,6 +354,7 @@ export function useWebRTC() {
       peer.on('data', handleData);
 
       peer.on('close', () => {
+        console.log('[WebRTC] Peer connection closed');
         setConnectionState('disconnected');
         setSignalStatus(null);
         isSendingRef.current = false;
@@ -360,14 +364,24 @@ export function useWebRTC() {
 
       peer.on('error', (err: any) => {
         console.error('[WebRTC Error]', err);
+        console.error('[WebRTC] Error details:', { 
+          name: err.name, 
+          code: err.code, 
+          message: err.message 
+        });
+        
         const code = err.code;
         const msg = err.message || 'Connection failed';
         
         if (msg.includes('Ice connection') || msg.includes('ICE')) {
+          console.error('[WebRTC] ❌ ICE connection failed');
+          console.error('[WebRTC] Possible causes: Firewall, NAT, or network blocking WebRTC');
           setError('iceFailed');
         } else if (code === 'ERR_WEBRTC_SUPPORT') {
+          console.error('[WebRTC] ❌ WebRTC not supported');
           setError('WebRTC not supported or blocked by browser.');
         } else {
+          console.error('[WebRTC] ❌ Unhandled error');
           // Show technical message for unhandled errors
           setError(msg);
         }
@@ -392,24 +406,32 @@ export function useWebRTC() {
     const maxAttempts = 60; // 60 attempts * 3 seconds = 3 minutes
     let attempts = 0;
     
+    console.log('[WebRTC] Starting to poll for answer...');
+    
     const poll = async () => {
       if (attempts >= maxAttempts) {
+        console.error('[WebRTC] ❌ Polling timeout - no answer received');
         setError('connectionTimeout');
         setConnectionState('error');
         return;
       }
       
       if (peer.destroyed) {
+        console.log('[WebRTC] Peer destroyed, stopping poll');
         return;
       }
       
       try {
         const answer = await pollAnswer(roomId);
         if (answer) {
+          console.log('[WebRTC] ✅ Answer received, signaling to peer...');
           peer.signal(answer);
           await markCompleted(roomId);
         } else {
           attempts++;
+          if (attempts % 10 === 0) {
+            console.log(`[WebRTC] Still waiting for answer... (${attempts}/${maxAttempts})`);
+          }
           setTimeout(poll, 3000); // Poll every 3 seconds
         }
       } catch (err) {
@@ -429,14 +451,18 @@ export function useWebRTC() {
     setSignalStatus('gathering');
     setConnectionState('connecting');
     
+    console.log('[WebRTC] 📤 Creating offer...');
     const peer = createPeerInstance(true);
     
     // Wait for signal event
     peer.once('signal', async (data) => {
       try {
+        console.log('[WebRTC] Offer signal generated, storing in Supabase...');
         // Store offer in Supabase and get room ID
         const roomId = await createRoom(data);
         currentRoomIdRef.current = roomId;
+        
+        console.log(`[WebRTC] ✅ Room created: ${roomId}`);
         
         // Derive encryption key from room ID
         encryptionKeyRef.current = await deriveFileEncryptionKey(roomId);
@@ -444,6 +470,8 @@ export function useWebRTC() {
         setLocalSignal(roomId); // Set room ID instead of full signal
         setSignalStatus('ready');
         setConnectionState('waiting-for-peer');
+        
+        console.log('[WebRTC] Waiting for peer to join...');
         
         // Start polling for answer
         pollForAnswer(roomId, peer);
@@ -467,31 +495,43 @@ export function useWebRTC() {
         setSignalStatus('gathering');
         setConnectionState('connecting');
         
+        console.log(`[WebRTC] 📥 Accepting offer with room ID: ${roomIdOrSignal}`);
+        
         let offerSignal: any;
         
         // Check if input is room ID (short) or full signal (long, for backward compat)
         if (roomIdOrSignal.length <= 10) {
           // It's a room ID, fetch offer from Supabase
+          console.log('[WebRTC] Fetching offer from Supabase...');
           offerSignal = await getOffer(roomIdOrSignal);
           currentRoomIdRef.current = roomIdOrSignal;
+          
+          console.log('[WebRTC] Offer received, deriving encryption key...');
           
           // Derive encryption key from room ID
           encryptionKeyRef.current = await deriveFileEncryptionKey(roomIdOrSignal);
         } else {
           // It's a full signal (backward compatibility)
+          console.log('[WebRTC] Using legacy full signal format');
           offerSignal = decodeSignal(roomIdOrSignal.trim());
         }
         
+        console.log('[WebRTC] Creating peer and signaling offer...');
         const peer = createPeerInstance(false);
         peer.signal(offerSignal as Peer.SignalData);
         
         // Wait for answer signal
         peer.once('signal', async (answerData) => {
+          console.log('[WebRTC] Answer signal generated');
           if (currentRoomIdRef.current) {
             // Submit answer to Supabase
             try {
+              console.log('[WebRTC] Submitting answer to Supabase...');
+
+              console.log('[WebRTC] Submitting answer to Supabase...');
               await submitAnswer(currentRoomIdRef.current, answerData);
               setSignalStatus('ready');
+              console.log('[WebRTC] ✅ Answer submitted, waiting for connection...');
             } catch (err: any) {
               console.error('[Submit Answer Error]', err);
               setError(err.message || 'Failed to submit answer');
@@ -499,6 +539,7 @@ export function useWebRTC() {
             }
           } else {
             // Fallback to old behavior (encode answer for manual copy/paste)
+            console.log('[WebRTC] Using legacy answer encoding');
             setLocalSignal(encodeSignal(answerData));
             setSignalStatus('ready');
           }
@@ -592,10 +633,10 @@ export function useWebRTC() {
           // Read chunk from file
           const start = i * CHUNK_SIZE;
           const end = Math.min(start + CHUNK_SIZE, file.size);
-          const chunk = new Uint8Array(await file.slice(start, end).arrayBuffer());
+          const chunk = new Uint8Array(await file.slice(start, end).arrayBuffer()) as Uint8Array;
 
           // Encrypt chunk before sending
-          let dataToSend = chunk;
+          let dataToSend: Uint8Array = chunk;
           if (encryptionKeyRef.current) {
             try {
               dataToSend = await encryptChunk(chunk, encryptionKeyRef.current);
