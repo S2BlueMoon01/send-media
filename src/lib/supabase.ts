@@ -238,6 +238,52 @@ function generateNumericRoomId(length: number = 8): string {
 }
 
 /**
+ * Check if a room ID already exists
+ * @param roomId - Room ID to check
+ * @returns true if room exists, false otherwise
+ */
+async function roomExists(roomId: string): Promise<boolean> {
+  try {
+    const { data, error } = await supabase
+      .from('webrtc_signals')
+      .select('id')
+      .eq('id', roomId)
+      .maybeSingle();
+    
+    if (error) {
+      console.error('[Supabase] Error checking room existence:', error);
+      return false; // Assume doesn't exist on error
+    }
+    
+    return data !== null;
+  } catch (error) {
+    console.error('[Supabase] Error checking room existence:', error);
+    return false;
+  }
+}
+
+/**
+ * Generate a unique room ID that doesn't exist in database
+ * @param maxRetries - Maximum number of retries (default 5)
+ * @returns Unique room ID
+ */
+async function generateUniqueRoomId(maxRetries: number = 5): Promise<string> {
+  for (let i = 0; i < maxRetries; i++) {
+    const roomId = generateNumericRoomId(8);
+    const exists = await roomExists(roomId);
+    
+    if (!exists) {
+      return roomId;
+    }
+    
+    console.log(`[Supabase] Room ID ${roomId} already exists, retrying...`);
+  }
+  
+  // If all retries fail, throw error
+  throw new Error('Failed to generate unique room ID after multiple attempts');
+}
+
+/**
  * Create a new room and store the offer
  * 
  * @param offer - WebRTC offer signal data from simple-peer
@@ -251,8 +297,8 @@ export async function createRoom(offer: SignalData): Promise<string> {
   // Validate signal data
   validateSignalData(offer);
   
-  // Generate room ID (8 numeric characters only)
-  const roomId = generateNumericRoomId(8);
+  // Generate unique room ID (8 numeric characters only)
+  const roomId = await generateUniqueRoomId();
   
   try {
     // Encrypt the offer before storing
@@ -270,6 +316,30 @@ export async function createRoom(offer: SignalData): Promise<string> {
     
     if (error) {
       console.error('[Supabase] Failed to create room:', error);
+      
+      // If duplicate key error (race condition), retry once
+      if (error.code === '23505' || error.message.includes('duplicate')) {
+        console.log('[Supabase] Duplicate room ID detected, retrying...');
+        const newRoomId = await generateUniqueRoomId();
+        const newEncryptedOffer = await encryptSignal(offer, newRoomId);
+        
+        const { error: retryError } = await supabase
+          .from('webrtc_signals')
+          .insert({
+            id: newRoomId,
+            offer: newEncryptedOffer,
+            answer: null,
+            expires_at: new Date(Date.now() + 5 * 60 * 1000).toISOString(),
+            completed: false,
+          });
+        
+        if (retryError) {
+          throw new Error(`Failed to create room after retry: ${retryError.message}`);
+        }
+        
+        return newRoomId;
+      }
+      
       throw new Error(`Failed to create room: ${error.message}`);
     }
     

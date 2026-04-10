@@ -71,12 +71,23 @@ export interface ChatMessage {
   timestamp: number;
 }
 
-// ─── STUN servers (Expanded list for better mobile connectivity) ─────────
+// ─── STUN/TURN servers (Multiple providers for reliability) ─────────
 const ICE_SERVERS: RTCIceServer[] = [
+  // STUN servers
   { urls: 'stun:stun.l.google.com:19302' },
   { urls: 'stun:stun1.l.google.com:19302' },
-  { urls: 'stun:stun2.l.google.com:19302' },
-  { urls: 'stun:stun.cloudflare.com:3478' },
+  
+  // TURN servers - OpenRelay
+  {
+    urls: [
+      'turn:openrelay.metered.ca:80',
+      'turn:openrelay.metered.ca:443',
+      'turn:openrelay.metered.ca:443?transport=tcp'
+    ],
+    username: 'openrelayproject',
+    credential: 'openrelayproject',
+  },
+  // Backup TURN - Twilio STUN (also has limited TURN)
   { urls: 'stun:global.stun.twilio.com:3478' },
 ];
 
@@ -328,15 +339,39 @@ export function useWebRTC() {
       }
 
       console.log(`[WebRTC] Creating peer instance (initiator: ${initiator})`);
+      console.log('[WebRTC] ICE Servers configured:', ICE_SERVERS);
 
       const peer = new Peer({
         initiator,
-        trickle: false, // Bundle all ICE candidates into one signal
-        config: { iceServers: ICE_SERVERS },
+        trickle: false, // Bundle all ICE candidates (including TURN) into one signal
+        config: { 
+          iceServers: ICE_SERVERS,
+          iceTransportPolicy: 'all', // Try all connection types (direct first, then relay)
+          iceCandidatePoolSize: 0, // Don't pre-gather, faster startup
+        },
+        // Increase timeouts for mobile connections
+        offerOptions: {
+          offerToReceiveAudio: false,
+          offerToReceiveVideo: false,
+        },
+        answerOptions: {
+          offerToReceiveAudio: false,
+          offerToReceiveVideo: false,
+        },
       });
 
       // Signal handler is now managed by createOffer/acceptOffer
       // to support Supabase signaling
+
+      // ICE connection state monitoring
+      peer.on('iceStateChange', (iceConnectionState: string, iceGatheringState: string) => {
+        console.log(`[WebRTC] ICE State: ${iceConnectionState}, Gathering: ${iceGatheringState}`);
+      });
+
+      // Monitor signaling state
+      peer.on('signalingStateChange', (state: string) => {
+        console.log(`[WebRTC] Signaling State: ${state}`);
+      });
 
       peer.on('connect', async () => {
         console.log('[WebRTC] ✅ Peer connected successfully!');
@@ -345,9 +380,12 @@ export function useWebRTC() {
         setError(null);
         requestWakeLock();
         
-        // Mark room as completed in Supabase
+        // Mark room as completed in Supabase (after connection established)
         if (currentRoomIdRef.current) {
-          await markCompleted(currentRoomIdRef.current);
+          // Delay deletion to ensure connection is stable
+          setTimeout(async () => {
+            await markCompleted(currentRoomIdRef.current!);
+          }, 2000);
         }
       });
 
@@ -403,7 +441,7 @@ export function useWebRTC() {
 
   /** Helper: Poll for answer from Supabase */
   const pollForAnswer = useCallback(async (roomId: string, peer: Peer.Instance) => {
-    const maxAttempts = 60; // 60 attempts * 3 seconds = 3 minutes
+    const maxAttempts = 90; // 90 attempts * 2 seconds = 3 minutes
     let attempts = 0;
     
     console.log('[WebRTC] Starting to poll for answer...');
@@ -413,6 +451,7 @@ export function useWebRTC() {
         console.error('[WebRTC] ❌ Polling timeout - no answer received');
         setError('connectionTimeout');
         setConnectionState('error');
+        if (!peer.destroyed) peer.destroy();
         return;
       }
       
@@ -424,20 +463,31 @@ export function useWebRTC() {
       try {
         const answer = await pollAnswer(roomId);
         if (answer) {
-          console.log('[WebRTC] ✅ Answer received, signaling to peer...');
+          console.log('[WebRTC] ✅ Answer received from Supabase');
+          
+          // Log ICE candidates in answer
+          if (answer.type === 'answer' && answer.sdp) {
+            const candidateCount = (answer.sdp.match(/a=candidate/g) || []).length;
+            const relayCount = (answer.sdp.match(/typ relay/g) || []).length;
+            console.log(`[WebRTC] Answer contains ${candidateCount} ICE candidates (${relayCount} relay)`);
+          }
+          
+          console.log('[WebRTC] Signaling answer to peer...');
           peer.signal(answer);
-          await markCompleted(roomId);
+          
+          // Don't delete room immediately - wait for connection to establish
+          // Room will be deleted in peer.on('connect') event
         } else {
           attempts++;
-          if (attempts % 10 === 0) {
+          if (attempts % 15 === 0) {
             console.log(`[WebRTC] Still waiting for answer... (${attempts}/${maxAttempts})`);
           }
-          setTimeout(poll, 3000); // Poll every 3 seconds
+          setTimeout(poll, 2000); // Poll every 2 seconds
         }
       } catch (err) {
         console.error('[Poll Answer Error]', err);
         attempts++;
-        setTimeout(poll, 3000); // Retry on error
+        setTimeout(poll, 2000); // Retry on error
       }
     };
     
@@ -454,10 +504,26 @@ export function useWebRTC() {
     console.log('[WebRTC] 📤 Creating offer...');
     const peer = createPeerInstance(true);
     
-    // Wait for signal event
+    // Wait for signal event (with trickle: false, this includes all ICE candidates)
     peer.once('signal', async (data) => {
       try {
-        console.log('[WebRTC] Offer signal generated, storing in Supabase...');
+        console.log('[WebRTC] Offer signal generated');
+        
+        // Log ICE candidates for debugging
+        if (data.type === 'offer' && data.sdp) {
+          const candidateCount = (data.sdp.match(/a=candidate/g) || []).length;
+          const hostCount = (data.sdp.match(/typ host/g) || []).length;
+          const srflxCount = (data.sdp.match(/typ srflx/g) || []).length;
+          const relayCount = (data.sdp.match(/typ relay/g) || []).length;
+          
+          console.log(`[WebRTC] Offer contains ${candidateCount} ICE candidates`);
+          console.log(`[WebRTC] - Host: ${hostCount}, Srflx: ${srflxCount}, Relay: ${relayCount}`);
+          
+          if (relayCount === 0) {
+            console.warn('[WebRTC] ⚠️ No TURN relay candidates! Connection may fail on restrictive networks.');
+          }
+        }
+        
         // Store offer in Supabase and get room ID
         const roomId = await createRoom(data);
         currentRoomIdRef.current = roomId;
@@ -523,11 +589,25 @@ export function useWebRTC() {
         // Wait for answer signal
         peer.once('signal', async (answerData) => {
           console.log('[WebRTC] Answer signal generated');
+          
+          // Log ICE candidates for debugging
+          if (answerData.type === 'answer' && answerData.sdp) {
+            const candidateCount = (answerData.sdp.match(/a=candidate/g) || []).length;
+            const hostCount = (answerData.sdp.match(/typ host/g) || []).length;
+            const srflxCount = (answerData.sdp.match(/typ srflx/g) || []).length;
+            const relayCount = (answerData.sdp.match(/typ relay/g) || []).length;
+            
+            console.log(`[WebRTC] Answer contains ${candidateCount} ICE candidates`);
+            console.log(`[WebRTC] - Host: ${hostCount}, Srflx: ${srflxCount}, Relay: ${relayCount}`);
+            
+            if (relayCount === 0) {
+              console.warn('[WebRTC] ⚠️ No TURN relay candidates! Connection may fail on restrictive networks.');
+            }
+          }
+          
           if (currentRoomIdRef.current) {
             // Submit answer to Supabase
             try {
-              console.log('[WebRTC] Submitting answer to Supabase...');
-
               console.log('[WebRTC] Submitting answer to Supabase...');
               await submitAnswer(currentRoomIdRef.current, answerData);
               setSignalStatus('ready');
